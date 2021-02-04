@@ -39,21 +39,41 @@ class MainViewController: UIViewController {
         // Fetch data
         self.fetchSystemState()
         
-        // We start by combining the events of reload and selection.
-        // When either of them emmit a tuple is emited
-        // It starts with a tuple of ((),nil) which is the default value for both variables
-        self.tableViewHandler.$reloaded.combineLatest(self.tableViewHandler.$selectedIndex)
-            .sink { [weak self] _, index in
-                self?.tableView.selectRow(at: index, animated: false, scrollPosition: .none)
+        // Publisher that emits whenever self.segmentedControl.selectedSegmentIndex changes, it starts with the value selected on the storyboard
+        let selectedSegmentIndexPublisher = self.segmentedControl.publisher(for: \.selectedSegmentIndex)
+
+        // Publisher that emits whenever a cell is selected ONLY if the currently selected selectedSegmentIndex is 0
+        let selectedWhenIndex0 = self.tableViewHandler.$selectedIndex   // We start with the publisher that emits whenever an item is selected
+            .dropFirst()                                                // We ignore the initial value of it
+            .filter { [weak self] _ in                                  // We now filter and only let events continue if the currently selected tab is 0
+                self?.segmentedControl.selectedSegmentIndex == 0
             }
-            .store(in: &self.cancellables)
-        
-        // We can use UIKit KVO based publisher to react to selectedSegmentIndex changes
-        self.segmentedControl.publisher(for: \.selectedSegmentIndex)
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                // The subscribed sink above this one will react to this change and will deselect the cell for us
-                self?.tableViewHandler.selectedIndex = nil
+            .prepend(nil)                                               // We initialize the publisher with a value of nil so it start with a value
+
+        // Publisher that emits whenever a cell is selected ONLY if the currently selected selectedSegmentIndex is 1
+        let selectedWhenIndex1 = self.tableViewHandler.$selectedIndex   // We start with the publisher that emits whenever an item is selected
+            .dropFirst()                                                // We ignore the initial value of it
+            .filter { [weak self] _ in                                  // We now filter and only let events continue if the currently selected tab is 1
+                self?.segmentedControl.selectedSegmentIndex == 1
+            }
+            .prepend(nil)                                               // We initialize the publisher with a value of nil so it start with a value
+
+        // We combine 4 publishers, whenever any of them emits, a new tuple is emitted with the new value and the latest value of the others
+        // There is a catch, if either of them never generated a value, then no value will be generated as is required that ALL of the publishers had emmited at least once
+        // This is way is we had to add '.prepend(nil)' on some of them.
+        self.tableViewHandler.$reloaded
+            .combineLatest(selectedWhenIndex0,
+                           selectedWhenIndex1,
+                           selectedSegmentIndexPublisher)
+            .map { _, lastCellWhenTab0, lastCellWhenTab1, lastSelectedTab in  // We map the 4 values into a single one, the cell we want to be selected (if any)
+                // Here we get a tuple with the last recorded value of all 4 publishers
+                // We ignore the first value cause is always void
+                // Now based on the 4th value (the currently selected tab we then return the latest known value from the publisher of selected cells for tab 0 or tab 1
+                lastSelectedTab == 0 ? lastCellWhenTab0 : lastCellWhenTab1
+            }
+            .sink { [weak self] index in
+                // This closure only gets one value, the cell to select
+                self?.tableView.selectRow(at: index, animated: false, scrollPosition: .none)
             }
             .store(in: &self.cancellables)
     }
