@@ -47,6 +47,15 @@ class MainViewController: UIViewController {
                 self?.tableView.selectRow(at: index, animated: false, scrollPosition: .none)
             }
             .store(in: &self.cancellables)
+        
+        // We can use UIKit KVO based publisher to react to selectedSegmentIndex changes
+        self.segmentedControl.publisher(for: \.selectedSegmentIndex)
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                // The subscribed sink above this one will react to this change and will deselect the cell for us
+                self?.tableViewHandler.selectedIndex = nil
+            }
+            .store(in: &self.cancellables)
     }
     
     /// Set the UI to the loading state
