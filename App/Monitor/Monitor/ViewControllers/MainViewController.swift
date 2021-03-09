@@ -1,5 +1,6 @@
 import MapKit
 import UIKit
+import Combine
 
 class MainViewController: UIViewController {
     @IBOutlet weak var mainStack: UIStackView!
@@ -15,13 +16,16 @@ class MainViewController: UIViewController {
     /// Flag to keep track if we already refreshed the UI once
     private var uiWasLoadedOnce = false
     
+    /// Set of cancelables related to subscriptions we want to keep active as long as the view controller is alive
+    private var cancellables: Set<AnyCancellable> = []
+    
     /// The current state of the system
     private var systemState: SystemState? {
         didSet {
             self.updateUI()
         }
     }
-        
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         // Setup IBActions
@@ -34,6 +38,15 @@ class MainViewController: UIViewController {
         
         // Fetch data
         self.fetchSystemState()
+        
+        // We start by combining the events of reload and selection.
+        // When either of them emmit a tuple is emited
+        // It starts with a tuple of ((),nil) which is the default value for both variables
+        self.tableViewHandler.$reloaded.combineLatest(self.tableViewHandler.$selectedIndex)
+            .sink { [weak self] _, index in
+                self?.tableView.selectRow(at: index, animated: false, scrollPosition: .none)
+            }
+            .store(in: &self.cancellables)
     }
     
     /// Set the UI to the loading state
